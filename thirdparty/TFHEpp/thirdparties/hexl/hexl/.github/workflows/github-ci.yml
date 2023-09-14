@@ -1,0 +1,260 @@
+# Copyright (C) 2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: Build and Test
+on:
+  # By default this will run when the activity type is "opened", "synchronize",
+  # or "reopened".
+  pull_request:
+    branches:
+      - main
+      - development
+      - "[0-9]+.[0-9]+.[0-9]+" # Run on release branch, e.g. 1.2.0
+  # Run when protected branches are pushed to, e.g. via merge
+  push:
+    branches:
+      - main
+      - development
+      - "[0-9]+.[0-9]+.[0-9]+" # Run on release branch, e.g. 1.2.0
+
+  # Manually run this workflow on any specified branch.
+  workflow_dispatch:
+
+###################
+# Define env vars #
+###################
+env:
+  HEXL_VER: 1.2.2
+  HEXL_DIR: ${GITHUB_WORKSPACE}/lib/cmake/hexl-${HEXL_VER}
+  HEXL_HINT_DIR: >
+      -DHEXL_HINT_DIR=${GITHUB_WORKSPACE}/lib/cmake/hexl-${HEXL_VER}
+  COVERAGE_COMPILER_FLAGS: >
+      -DCMAKE_BUILD_TYPE=Debug
+      -DCMAKE_CXX_COMPILER=g++-9
+      -DCMAKE_C_COMPILER=gcc-9
+      -DHEXL_BENCHMARK=ON
+      -DHEXL_TESTING=ON
+      -DHEXL_COVERAGE=ON
+      -DHEXL_DOCS=ON
+      -DHEXL_TREAT_WARNING_AS_ERROR=ON
+      -DCMAKE_INSTALL_PREFIX=./
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      # Required for pre-commit
+      - run: pip3 install cpplint
+      # NOTE: This is deprecated in favor of pre-commit.ci
+      - uses: pre-commit/action@v2.0.2
+        with:
+          extra_args: --all-files
+
+  coverage-build:
+    name: coverage-build
+    runs-on: ubuntu-20.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v2
+      - name: Coverage build
+        run: |
+          set -x
+
+          # Install dependencies
+          sudo apt-get install -y doxygen graphviz lcov
+
+          # Build library
+          cmake -S . -B build ${{ env.COVERAGE_COMPILER_FLAGS }}
+          cmake --build build -j --target all docs
+          cmake --install build
+          # Test
+          build/test/unit-test
+          HEXL_DISABLE_AVX512IFMA=1 build/test/unit-test
+          HEXL_DISABLE_AVX512DQ=1 build/test/unit-test
+
+          lcov --capture --directory build/hexl --directory build/test/ --output-file cov_test.info
+
+          # Remove unwanted directories
+          lcov --remove cov_test.info '/usr/include/*' '/usr/lib/*' -o cov_test.info
+          lcov --remove cov_test.info '*/test/*' '*/build/*' '*/benchmark/*' -o cov_test.info
+
+          # Report overall summary to be parsed by github CI
+          lcov --list cov_test.info
+
+          # Generate coverage html
+          genhtml --branch-coverage cov_test.info --output-directory coverage
+          set +x
+
+          # TODO: report/parse coverage in github CI
+
+  nix-build:
+    name: '${{ matrix.os }} ${{ matrix.build_type }} shared=${{ matrix.shared_lib }}'
+    runs-on: '${{ matrix.os }}'
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      matrix:
+        os: [ice-lake, [self-hosted, ubuntu-18.04], macos-latest, ubuntu-20.04]
+        build_type: [Release, Debug]
+        shared_lib: [ON, OFF]
+        include:
+          # Run benchmarks quickly in Debug mode
+          - build_type: Debug
+            benchmark_min_time: "--benchmark_min_time=0.001"
+          - build_type: Release
+            benchmark_min_time: ""
+        exclude: # Skip debug on Mac. TODO: add Debug mode
+          - os: macos-latest
+            build_type: Debug
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup cmake
+        uses: jwlawson/actions-setup-cmake@v1.10
+        with:
+          cmake-version: '3.13.x'
+      - name: Default build
+        run: |
+          set -x
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            export CC=clang-10
+            export CXX=clang++-10
+          fi
+
+          # Print information useful for debugging
+          whoami
+          echo $HOME
+          echo $GITHUB_WORKSPACE
+          echo "Testing from branch:"
+          echo $GITHUB_REFH
+          cmake --version
+          pwd
+
+          # Build library
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}  \
+            -DHEXL_SHARED_LIB=${{ matrix.shared_lib }} \
+            -DCMAKE_INSTALL_PREFIX=./
+          cmake --build build -j
+          cmake --build build --target install
+          cmake --build build --target unittest
+          # Instead of calling cmake --build build --target bench,
+          # we run the executable directly to pass command-line arguments
+          ./build/benchmark/bench_hexl \
+            --benchmark_out="${GITHUB_WORKFLOW}_${GITHUB_SHA}" \
+            --benchmark_out_format=csv ${{ matrix.benchmark_min_time }}
+
+          # Build and run examples
+          cd $GITHUB_WORKSPACE/example/cmake
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            ${{ env.HEXL_HINT_DIR }}
+          cmake --build build
+          build/example
+
+          # Build example using pkgconfig
+          cd $GITHUB_WORKSPACE/example/pkgconfig
+          # Set PKG_CONFIG_PATH to locate hexl.pc
+          export PKG_CONFIG_PATH=$GITHUB_WORKSPACE/lib/pkgconfig
+          cmake -S . -B build
+          cmake --build build
+          build/example
+
+          # Build example using vcpkg
+          # TODO: fix vcpkg example CI
+          # vcpkg install hexl --overlay-ports=$GITHUB_WORKSPACE/port/hexl/ --head
+          # cd $GITHUB_WORKSPACE/example/vcpkg
+          # vcpkg_toolchain=$(locate vcpkg.cmake)
+          # echo $vcpkg_toolchain
+          # cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=$vcpkg_toolchain
+          # cmake --build build
+          # build/example
+          # set +x
+
+      - name: Archive benchmark results
+        uses: actions/upload-artifact@v2
+        with:
+          name: bench_hexl_${{github.sha}}.csv
+          path: ${{ github.workspace }}/${{ github.workflow }}_${{ github.sha }}
+          retention-days: 90 # Maximum for free version
+
+  windows-build:
+    name: 'Windows ${{ matrix.os }} ${{ matrix.build_type }} shared=${{ matrix.shared_lib }}'
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      matrix:
+        build_type: [Release, Debug]
+        # Shared lib in Windows requires exporting symbols
+        shared_lib: [OFF]
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Default build
+        run: |
+          set -x
+          # Build library
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type}} \
+            -DCMAKE_INSTALL_PREFIX=./ \
+            -DHEXL_SHARED_LIB=${{ matrix.shared_lib }}
+          cmake --build build -j --config ${{ matrix.build_type}}
+          cmake --build build --target install --config ${{ matrix.build_type}}
+          cmake --build build --target unittest --config ${{ matrix.build_type}}
+          cmake --build build --target bench --config ${{ matrix.build_type}}
+
+          # Build and run examples
+          cd example/cmake
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type}} \
+            ${{ env.HEXL_HINT_DIR }}
+          cmake --build build --config ${{ matrix.build_type}}
+          build/${{ matrix.build_type}}/example.exe
+
+          # TODO: add pkgconfig and vcpkg examples
+
+  experimental-build:
+    name: 'experimental: ${{ matrix.os }} ${{ matrix.build_type }} shared=${{ matrix.shared_lib }}'
+    runs-on: '${{ matrix.os }}'
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      matrix:
+        os: [ice-lake]
+        build_type: [Release]
+        shared_lib: [ON]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Default build
+        run: |
+          set -x
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            export CC=clang-10
+            export CXX=clang++-10
+          fi
+
+          # Print information useful for debugging
+          whoami
+          echo $HOME
+          echo $GITHUB_WORKSPACE
+          echo "Testing from branch:"
+          echo $GITHUB_REFH
+          cmake --version
+          pwd
+
+          # Build library
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}  \
+            -DHEXL_SHARED_LIB=${{ matrix.shared_lib }} \
+            -DCMAKE_INSTALL_PREFIX=./ \
+            -DHEXL_EXPERIMENTAL=ON
+          cmake --build build -j
+          cmake --build build --target install
+          cmake --build build --target unittest
+          # Instead of calling cmake --build build --target bench,
+          # we run the executable directly to pass command-line arguments
+          ./build/benchmark/bench_hexl \
+            --benchmark_out="${GITHUB_WORKFLOW}_${GITHUB_SHA}" \
+            --benchmark_out_format=csv
