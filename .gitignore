@@ -15,6 +15,7 @@ build-debug/
 evalkey/
 data/
 build*/
+.vscode/
 
 # Compiled Python bytecode
 *.py[cod]

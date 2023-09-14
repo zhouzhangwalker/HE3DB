@@ -44,3 +44,18 @@ the docker container.
 - codes `test/query.cpp`
 - output binary `build/bin/query`
 - This demo shows the evaluation of tpc-h Q6 over a 16 rows of encrypted database.
+
+## Citation
+To cite HE<sup>3</sup>DB, please use the following BibTeX entries.
+```
+@inproceedings{HE$^3$DB,
+  author    = {Song Bian, Zhou Zhang, Haowen Pan, Ran Mao, Zian Zhao, Yier Jin and Zhenyu Guan},
+  title     = {HE$^3$DB: An Efficient and Elastic Encrypted Database Via
+                Arithmetic-And-Logic Fully Homomorphic Encryption},
+  booktitle = {Proceedings of the 2023 ACM SIGSAC Conference on Computer
+            and Communications Security (CCS '23), November 26--30, 2023, Copenhagen,
+            Denmark},
+  publisher = {{ACM}},
+  year      = {2023}
+}
+```
