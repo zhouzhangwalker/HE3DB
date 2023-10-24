@@ -6,7 +6,7 @@ using namespace HEDB;
 
 void repack_test(uint32_t scale_bits, size_t num_slots)
 {
-    std::cout << " Num slots: " << num_slots << std::endl;
+    std::cout << "Num slots: " << num_slots << std::endl;
     std::random_device seed_gen;
     std::default_random_engine engine(seed_gen());
     using P = Lvl1;
@@ -19,7 +19,6 @@ void repack_test(uint32_t scale_bits, size_t num_slots)
     for (size_t i = 0; i < num_slots; i++)
     {
         slots[i] = message(engine);
-        // slots[i] = 1;
         tlwes[i] = TFHEpp::tlweSymInt32Encrypt<P>(slots[i], Lvl1::α, std::pow(2., scale_bits), tfhepp_secret_key.key.get<P>());
     }
 
@@ -74,8 +73,6 @@ void repack_test(uint32_t scale_bits, size_t num_slots)
     seal::pack_decode(computed, plain, ckks_encoder);
 
     double err = 0.;
-    
-    // std::cout << "Repack time: " << repack_time << std::endl;
     for (size_t i = 0; i < num_slots; ++i)
     {
         err += std::abs(computed[i] - slots[i]);

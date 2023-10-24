@@ -20,16 +20,13 @@ void tlwelvl1_comparison_test(uint32_t plain_bits, int num_test)
     using P = Lvl1;
     TFHESecretKey sk;
     TFHEEvalKey ek;
-    // load_secret_key(sk);
-    // load_iksklvl10_key(ek);
-    // load_bkfftlvl01_key(ek);
     ek.emplacebkfft<Lvl01>(sk);
     ek.emplaceiksk<Lvl10>(sk);
     uint32_t scale_bits;
     std::vector<uint32_t> error_time(5, 0);
     std::vector<double> comparison_time(5, 0.);
-    // For simplicity，the input range is [0, 2^p -1]
-    std::uniform_int_distribution<typename P::T> message(0, (1 << plain_bits) - 1);
+    // For simplicity，the input range is [0, 2^(p-1) -1]
+    std::uniform_int_distribution<typename P::T> message(0, (1 << (plain_bits - 1) - 1));
     std::uniform_int_distribution<typename P::T> type(0, 1);
     scale_bits = std::numeric_limits<P::T>::digits - plain_bits - 1;
     typename P::T p0,p1, gres, geres, lres, leres, eres, dgres, dgeres, dlres, dleres, deres;
@@ -111,7 +108,7 @@ void tlwelvl1_comparison_test(uint32_t plain_bits, int num_test)
     
 }
 
-// Lvl2 include 10 -24 bits
+// Lvl2 include 10 - 32 bits
 void tlwelvl2_comparison_test(uint32_t plain_bits, int num_test)
 {
     std::cout << "------ Test of TLWE lvl2param Comparison Function------" << std::endl;
@@ -122,13 +119,7 @@ void tlwelvl2_comparison_test(uint32_t plain_bits, int num_test)
     using P = Lvl2;
     TFHESecretKey sk;
     TFHEEvalKey ek;
-    // load_secret_key(sk);
-    // load_bkfftlvl01_key(ek);
-    // load_bkfftlvl02_key(ek);
-    // load_iksklvl10_key(ek);
-    // load_iksklvl20_key(ek);
-    // load_iksklvl21_key(ek);
-    
+
     ek.emplacebkfft<Lvl01>(sk);
     ek.emplacebkfft<Lvl02>(sk);
     ek.emplaceiksk<Lvl20>(sk);
@@ -137,7 +128,7 @@ void tlwelvl2_comparison_test(uint32_t plain_bits, int num_test)
     uint32_t scale_bits;
     std::vector<uint32_t> error_time(5, 0);
     std::vector<double> comparison_time(5, 0.);
-    std::uniform_int_distribution<typename P::T> message(0, (1 << plain_bits) - 1);
+    std::uniform_int_distribution<typename P::T> message(0, (1 << (plain_bits -1) - 1));
     std::uniform_int_distribution<typename P::T> type(0, 1);
     scale_bits = std::numeric_limits<P::T>::digits - plain_bits - 1;
     typename P::T p0,p1, gres, geres, lres, leres, eres, dgres, dgeres, dlres, dleres, deres;
@@ -219,32 +210,9 @@ void tlwelvl2_comparison_test(uint32_t plain_bits, int num_test)
 
 int main()
 {
-    int num_test = 1000;
-
-    // tlwelvl1_comparison_test(4, num_test);
-    // tlwelvl2_comparison_test(16, num_test);
-    // For overall multi-thread test
-    // for (size_t i = 4; i <= 9; i++)
-    // {
-    //     multi_thread(tlwelvl1_comparison_test, 10, 10, i);
-    //     // tlwelvl1_comparison_test(i);
-    // }
-    // for (size_t i = 4; i <= 9; i++)
-    // {
-    //     multi_thread(tlwelvl2_comparison_test, 10, 10, i, num_test);
-    // }
-
-
-    // For overall single-thread test
-    for (size_t i = 4; i <= 9; i++)
-    {
-        tlwelvl1_comparison_test(i, num_test);
-    }
-    for (size_t i = 4; i <= 32; i++)
-    {
-        tlwelvl2_comparison_test(i, num_test);
-    }
-    
-     
+    int num_test = 100;
+    tlwelvl1_comparison_test(4, num_test);
+    tlwelvl2_comparison_test(16, num_test);
+    tlwelvl2_comparison_test(32, num_test);
 }
 

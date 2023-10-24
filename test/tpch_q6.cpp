@@ -41,7 +41,7 @@ uint64_t generate_date(uint64_t down, uint64_t up)
 
 void predicate_evaluation(std::vector<TLWELvl1> &pred_cres, std::vector<uint32_t> &pred_res, size_t rows, 
     std::vector<uint32_t> quanlity_data, std::vector<uint32_t> discount_data, 
-    std::vector<uint64_t> ship_data, TFHESecretKey &sk)
+    std::vector<uint64_t> ship_data, TFHESecretKey &sk, double &filter_time)
 {
     std::cout<< "Predicate evaluation: " << std::endl;
     using P = Lvl2;
@@ -139,14 +139,15 @@ void predicate_evaluation(std::vector<TLWELvl1> &pred_cres, std::vector<uint32_t
         pred_cres_de[i] = TFHEpp::tlweSymInt32Decrypt<Lvl1>(pred_cres[i], pow(2., 29), sk.key.get<Lvl1>());
     }
     for (size_t i = 0; i < rows; i++) error_time += (pred_cres_de[i] == pred_res[i])? 0 : 1;
-    cout << "Predicate Evaluaton Time (s): " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() / 1000 << std::endl;
+    // cout << "Predicate Evaluaton Time (s): " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() / 1000 << std::endl;
     cout << "Predicate Error: " << error_time << std::endl;
+    filter_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
 }
 
 void aggregation(std::vector<TLWELvl1> &pred_cres, std::vector<uint32_t> &pred_res, size_t tfhe_n,
             std::vector<double> &extendedprice_data, std::vector<double> &discount_data_double,
-             size_t rows, TFHESecretKey &sk)
+             size_t rows, TFHESecretKey &sk, double &aggregation_time)
 {
     std::cout << "Aggregation :" << std::endl;
     uint64_t scale_bits = 29;
@@ -197,7 +198,7 @@ void aggregation(std::vector<TLWELvl1> &pred_cres, std::vector<uint32_t> &pred_r
     LWEsToRLWE(result, pred_cres, pre_key, scale, std::pow(2., modq_bits), std::pow(2., modulus_bits - modq_bits), ckks_encoder, galois_keys, relin_keys, evaluator, context);
     HomRound(result, result.scale(), ckks_encoder, relin_keys, evaluator, decryptor, context);
     end = std::chrono::system_clock::now();
-    double run_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    aggregation_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     seal::Plaintext plain;
     std::vector<double> computed(slots_count);
     decryptor.decrypt(result, plain);
@@ -210,9 +211,7 @@ void aggregation(std::vector<TLWELvl1> &pred_cres, std::vector<uint32_t> &pred_r
         err += std::abs(computed[i] - pred_res[i]);
     }
 
-    printf("repack average error = %f ~ 2^%.1f\n", err / slots_count, std::log2(err / slots_count));
-    // printf("repack max error = %f ~ 2^%.1f\n", err, std::log2(err));
-    std::cout << "Conversion time: " << run_time << " ms" << std::endl;
+    printf("Repack average error = %f ~ 2^%.1f\n", err / slots_count, std::log2(err / slots_count));
 
 
     // Filter result * data
@@ -241,6 +240,7 @@ void aggregation(std::vector<TLWELvl1> &pred_cres, std::vector<uint32_t> &pred_r
         evaluator.add_inplace(result, temp);
     }
     end = std::chrono::system_clock::now();
+    aggregation_time += std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     std::vector<double> agg_result(slots_count);
     decryptor.decrypt(result, plain);
     seal::pack_decode(agg_result, plain, ckks_encoder);
@@ -250,7 +250,7 @@ void aggregation(std::vector<TLWELvl1> &pred_cres, std::vector<uint32_t> &pred_r
         plain_result += extendedprice_data[i] * discount_data_double[i] * pred_res[i];
     }
     cout << "Plain_result: " << plain_result << endl;
-    cout << "Encrypted query result: " << agg_result[0] <<endl;
+    cout << "Encrypted query result: " << std::round(agg_result[0]) <<endl;
 
 }
 
@@ -286,11 +286,12 @@ void query_evaluation(size_t rows)
     quanlity_data[0] = 1;
     discount_data[0] = 9;
     ship_data[0] = 21215;
-
+    double filter_time, aggregation_time;
     std::vector<TLWELvl1> pred_cres(rows);
     std::vector<uint32_t> pred_res(rows, 0);
-    predicate_evaluation(pred_cres, pred_res, rows, quanlity_data, discount_data, ship_data, sk);
-    aggregation(pred_cres, pred_res, Lvl1::n, extendedprice_data, discount_data_double, rows, sk);
+    predicate_evaluation(pred_cres, pred_res, rows, quanlity_data, discount_data, ship_data, sk, filter_time);
+    aggregation(pred_cres, pred_res, Lvl1::n, extendedprice_data, discount_data_double, rows, sk, aggregation_time);
+    cout << "End-to-End Time: " << (filter_time + aggregation_time) / 1000 << " s" << endl;
 
 }
 
